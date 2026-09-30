@@ -1,6 +1,10 @@
 # arm_tools（RBM OpenArm，真机）
 
 项目级 OpenCode tools：`.opencode/tools/` 放 TS 注册，`arm_tools/` 放 Python 后端。
+
+## Agent Skill
+
+仓库根目录的 [`SKILL.md`](../SKILL.md) 是给 Agent 使用的控制入口，覆盖移动、夹爪、复位和感知工具。详细参数见 [`references/tools.md`](../references/tools.md)，安全与恢复规则见 [`references/safety.md`](../references/safety.md)。
 TS 只负责传参调脚本；逻辑全在 Python；输出统一单行 JSON。
 
 ## 交互式入口
