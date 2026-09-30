@@ -60,8 +60,8 @@ def main():
         C.die("arm 必须显传 left/right", got=arm)
     if not (-1.5 <= target <= 1.5):
         C.die("target_pitch 超限 ±1.5rad", got=target)
-    if gripper not in ("hold", 1, -1):
-        C.die("gripper 只能是 hold/+1/-1", got=gripper)
+    if gripper not in ("hold", "open", "close"):
+        C.die("gripper 只能是 hold/open/close", got=gripper)
     if not (0.02 <= timeout_s <= 300.0):
         C.die("timeout_s 必须在 0.02~300", got=timeout_s)
 
@@ -76,14 +76,14 @@ def main():
         if tcp is None:
             C.die("读不到 TCP TF（world->hand_tcp）")
 
-        if gripper in (1, -1):
+        if gripper in ("open", "close"):
             from set_gripper import drive_gripper
 
             g = cfg["gripper"]
             ok_gripper, _ = drive_gripper(
                 node, live, arm,
-                g["closed_m"] if gripper == 1 else g["open_m"],
-                10, 0.05, cfg,
+                g["closed_m"] if gripper == "close" else g["open_m"],
+                cfg,
             )
             if not ok_gripper:
                 C.die("旋转前夹爪失败")
@@ -97,8 +97,8 @@ def main():
             np.asarray(tcp["xyz"], dtype=np.float64),
             target_quat,
             timeout_s=timeout_s,
-            position_tolerance=float(args.get("position_tol", 0.012)),
-            orientation_tolerance=float(args.get("orientation_tol", 0.10)),
+            position_tolerance=float(cfg["moveit"]["rotation_position_tolerance_m"]),
+            orientation_tolerance=float(cfg["moveit"]["rotation_orientation_tolerance_rad"]),
         )
         final_q = result.get("final_quat_wxyz")
         final_pitch = pitch_of_quat(final_q) if final_q is not None else None

@@ -57,10 +57,6 @@ def main():
         "xyz": target_world.tolist(),
         "arm": arm,
         "gripper": args.get("gripper", "hold"),
-        "step_clip": float(args.get("step_clip", 0.02)),
-        "max_steps": int(args.get("max_steps", 80)),
-        "tol": float(args.get("tol", 0.005)),
-        "orientation_tol": float(args.get("orientation_tol", 0.02)),
         "timeout_s": float(args.get("timeout_s", 30.0)),
     }
     move_to = os.path.join(C.repo_dir(), "move_to.py")

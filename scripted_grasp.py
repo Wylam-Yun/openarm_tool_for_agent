@@ -39,7 +39,6 @@ def main():
     arm = args.get("arm")
     approach_z = float(args.get("approach_z", 0.10))
     grasp_z = float(args.get("grasp_z_offset", 0.0))
-    step_clip = float(args.get("step_clip", 0.02))
     timeout_s = float(args.get("timeout_s", 60.0))
     if not (isinstance(xyz, list) and len(xyz) == 3):
         C.die("xyz 必须是 world 系 [x,y,z]", got=xyz)
@@ -54,18 +53,18 @@ def main():
     phases = []
     seq = [
         ("open", "set_gripper.py",
-         {"arm": arm, "gripper": -1, "steps": 10, "timeout_s": timeout_s}),
+         {"arm": arm, "state": "open", "timeout_s": timeout_s}),
         ("hover", "move_to.py",
          {"xyz": shifted(approach_z), "arm": arm, "gripper": "hold",
-          "step_clip": step_clip, "timeout_s": timeout_s}),
+          "timeout_s": timeout_s}),
         ("descend", "move_to.py",
          {"xyz": shifted(grasp_z), "arm": arm, "gripper": "hold",
-          "step_clip": step_clip, "timeout_s": timeout_s}),
+          "timeout_s": timeout_s}),
         ("close", "set_gripper.py",
-         {"arm": arm, "gripper": 1, "steps": 10, "timeout_s": timeout_s}),
+         {"arm": arm, "state": "close", "timeout_s": timeout_s}),
         ("lift", "move_to.py",
          {"xyz": shifted(approach_z), "arm": arm, "gripper": "hold",
-          "step_clip": step_clip, "timeout_s": timeout_s}),
+          "timeout_s": timeout_s}),
     ]
     for name, script, payload in seq:
         res = call(script, payload)

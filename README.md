@@ -38,7 +38,7 @@ bash ./arm_tools.sh
 workspace_weilin/
   .opencode/tools/
     set_gripper.ts     # tool: set_gripper
-    release.ts         # tool: release（调 set_gripper.py，gripper=-1）
+    release.ts         # tool: release（调 set_gripper.py，state=open）
     view_env_state.ts  # tool: view_env_state（无参）
     move_to.ts         # tool: move_to
     move_delta.ts      # tool: move_delta（读 TCP + dxyz，转调 move_to）
@@ -50,7 +50,7 @@ workspace_weilin/
     config.yaml        # 话题/帧名/task_frame/相机外参/限位
     arm_common.py      # 共享：配置加载、LiveState（joint/TF/图像快照，只读）
     perception_common.py  # 感知共享：相机解析、外参、深度反投
-    set_gripper.py     # 后端：GripperCommand Action 插值（drive_gripper 可 import）
+    set_gripper.py     # 后端：GripperCommand Action（drive_gripper 可 import）
     view_env_state.py  # 后端：快照 + 存图到 snapshots/
     robot_client.py    # 共享：MoveIt MoveGroup 请求 + 最终 TCP 校验
     move_to.py         # 后端：world xyz → MoveIt hand_tcp 目标
@@ -88,11 +88,11 @@ conda activate openarm
 ## tool 说明
 
 ### set_gripper / release
-- 输入：`arm(left/right 必填)`，`gripper(+1/-1)`，`steps=10`
-- 输出：`{success, arm, width}`（0.0 闭 / 0.044 开）
+- `set_gripper` 输入：`arm(left/right)`、`state(open/close)`；夹爪原地动作，不移动手臂。
+- `release` 输入：`arm`；它是 `set_gripper(state=open)` 的语义快捷入口。
+- 输出：`{success, arm, state, width}`（0.0 闭 / 0.044 开）。
 - 链路：`left|right_gripper_controller/gripper_cmd`（GripperCommand Action，
-  `position` + `max_effort=0.0`，与 ik_teleop_node 同值）；`steps` 步插值逐 goal 等
-  `reached_goal`；不发手臂话题。
+  `position` + `max_effort=0.0`，与 ik_teleop_node 同值）；内部只发一个目标。
 
 ### view_env_state
 - 输入：无。永远读最新（step 索引等录 HDF5 后再加）。
@@ -102,7 +102,7 @@ conda activate openarm
   三路 compressed 图像各取一帧存 `snapshots/`。纯只读。
 
 ### move_to
-- 输入：`xyz(world 系)`，`arm(必填)`，`gripper=hold`，`tol=0.005`，`timeout_s=30`
+- 输入：`xyz(world 系绝对位置)`，`arm`，`gripper=hold/open/close`，`timeout_s=30`
 - 输出：`{success, final_xyz, position_error_m, orientation_error_rad, ...}`
 - 链路：
   1. 检查 world 目标和安全高度。
@@ -112,20 +112,20 @@ conda activate openarm
   4. 执行后重新读取真实 `hand_tcp` TF；位置和姿态误差都在容差内才成功。
 
 ### move_delta
-- 输入：`dxyz(world 系增量)`，`arm(必填)`，`gripper=hold`，`tol=0.005`，`timeout_s=30`
+- 输入：`dxyz(world 系增量)`，`arm`，`gripper=hold/open/close`，`timeout_s=30`
 - 输出：move_to 的原样 JSON。
 - 链路：读一次当前 TCP（world）并锁定目标 → 调共享 move_to。
 
 ### rotate_pitch
-- 输入：`target_pitch(绝对弧度，限±1.5，默认0.6)`，`arm(必填)`，
-  `gripper=hold`，`timeout_s=30`
+- 输入：`target_pitch(绝对弧度，限±1.5，默认0.6)`，`arm`，
+  `gripper=hold/open/close`，`timeout_s=30`
 - 输出：`{success, arm, final_pitch, pitch_error_rad, position_error_m, ...}`
 - 链路：TF 读当前位姿提 pitch → 生成保持 TCP 位置的新姿态 → MoveIt
   规划执行 → 重新读取 TCP 验证位置和姿态；需要夹爪动作时才调用 gripper。
 
 ### scripted_grasp
-- 输入：`xyz(world 系抓取点)`，`arm(必填)`，`approach_z=0.10`，
-  `grasp_z_offset=0.0`，`step_clip=0.02`，`timeout_s=60`
+- 输入：`xyz(world 系抓取点)`，`arm`，`approach_z=0.10`，
+  `grasp_z_offset=0.0`，`timeout_s=60`（每个阶段的最大等待时间）
 - 输出：`{success, phases[]}` 或 `{success:false, failed_phase, phases}`
 - 链路：串行调用共享 `set_gripper`/`move_to`：张开→悬停→下降→闭→抬，
   任一步失败即停并标明卡点；每个阶段有超时。
@@ -137,7 +137,7 @@ conda activate openarm
 
 ### back_project_batch
 - 输入：`pixels([[row,col]...]≤50)`，`camera=agentview`（wrist 需显传 arm，
-  navview 拒），`resolution=low`
+  navview 拒）
 - 输出：`{success, camera, points[](无效为null), median, valid, total}`
 - 链路：取深度 + camera_info → 每点 3x3 中值深度 → 内参反投 → 外参到 world。
   标准用法：目标上取 3–8 个点读中值。
@@ -152,9 +152,9 @@ conda activate openarm
 ## 真机验收（你做）
 
 1. `view_env_state`：读数与肉眼/卷尺对上；三图有（depth 关着无深度是正常的）。
-2. `set_gripper`：空爪开合平滑；捏海绵 `+1` 不压坏。
+2. `set_gripper`：空爪开合平滑；捏海绵时确认闭合动作不会压坏物体。
 3. `move_to`：先 2cm 小步 → 10cm → 30cm 拆段；残差>tol 判失败就停手查 TF。
-4. `move_delta`：连发 5 次 2cm 步进，看漂不漂（等价 move_to，重点看目标换算对不对）。
+4. `move_delta`：连发 5 次 2cm 增量，看漂不漂（重点看目标换算对不对）。
 5. `rotate_pitch`：先 `target_pitch=0.2` 小角度，看位置漂不漂（<1cm 才继续加角度）。
 6. `scripted_grasp`：先用空中假目标（手不放东西）走全流程，确认五步衔接；再放真东西抓。
 7. `back_project_batch`：标定点上取 5 个点，中值与真值差 <2cm 才算外参可用。
