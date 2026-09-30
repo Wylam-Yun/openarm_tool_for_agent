@@ -55,15 +55,15 @@ def main():
         ("open", "set_gripper.py",
          {"arm": arm, "state": "open", "timeout_s": timeout_s}),
         ("hover", "move_to.py",
-         {"xyz": shifted(approach_z), "arm": arm, "gripper": "hold",
+         {"xyz": shifted(approach_z), "arm": arm,
           "timeout_s": timeout_s}),
         ("descend", "move_to.py",
-         {"xyz": shifted(grasp_z), "arm": arm, "gripper": "hold",
+         {"xyz": shifted(grasp_z), "arm": arm,
           "timeout_s": timeout_s}),
         ("close", "set_gripper.py",
          {"arm": arm, "state": "close", "timeout_s": timeout_s}),
         ("lift", "move_to.py",
-         {"xyz": shifted(approach_z), "arm": arm, "gripper": "hold",
+         {"xyz": shifted(approach_z), "arm": arm,
           "timeout_s": timeout_s}),
     ]
     for name, script, payload in seq:

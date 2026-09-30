@@ -54,14 +54,11 @@ def main():
         C.die(f"参数不是合法 JSON：{exc}")
     target = float(args.get("target_pitch", 0.6))
     arm = args.get("arm")
-    gripper = args.get("gripper", "hold")
     timeout_s = float(args.get("timeout_s", 30.0))
     if arm not in ("left", "right"):
         C.die("arm 必须显传 left/right", got=arm)
     if not (-1.5 <= target <= 1.5):
         C.die("target_pitch 超限 ±1.5rad", got=target)
-    if gripper not in ("hold", "open", "close"):
-        C.die("gripper 只能是 hold/open/close", got=gripper)
     if not (0.02 <= timeout_s <= 300.0):
         C.die("timeout_s 必须在 0.02~300", got=timeout_s)
 
@@ -75,18 +72,6 @@ def main():
         tcp = live.get_tcp(arm, timeout_s=5.0)
         if tcp is None:
             C.die("读不到 TCP TF（world->hand_tcp）")
-
-        if gripper in ("open", "close"):
-            from set_gripper import drive_gripper
-
-            g = cfg["gripper"]
-            ok_gripper, _ = drive_gripper(
-                node, live, arm,
-                g["closed_m"] if gripper == "close" else g["open_m"],
-                cfg,
-            )
-            if not ok_gripper:
-                C.die("旋转前夹爪失败")
 
         R0 = matrix_from_quat(tcp["quat"])
         roll, _, yaw = rpy_from_matrix(R0)

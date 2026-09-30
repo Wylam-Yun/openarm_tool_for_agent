@@ -45,6 +45,7 @@ class MoveItClient:
         from moveit_msgs.action import MoveGroup
         from moveit_msgs.msg import (
             Constraints,
+            JointConstraint,
             OrientationConstraint,
             PositionConstraint,
         )
@@ -55,6 +56,7 @@ class MoveItClient:
         self.cfg = cfg
         self.MoveGroup = MoveGroup
         self.Constraints = Constraints
+        self.JointConstraint = JointConstraint
         self.OrientationConstraint = OrientationConstraint
         self.PositionConstraint = PositionConstraint
         self.Pose = Pose
@@ -207,6 +209,102 @@ class MoveItClient:
             "final_quat_wxyz": [round(float(v), 6) for v in final["quat"]],
             "position_error_m": round(position_error, 4),
             "orientation_error_rad": round(orientation_error, 4),
+            "moveit_error_code": code,
+            "planning_time_s": round(float(result.planning_time), 3),
+        }
+
+    def move_joints(self, side, target_joints, timeout_s=30.0,
+                    velocity_scaling=0.15):
+        """Plan and execute a named joint target, then verify joint state."""
+        from moveit_msgs.msg import MoveItErrorCodes
+
+        if side not in ("left", "right"):
+            return {"success": False, "error": "arm 必须是 left/right"}
+        target = np.asarray(target_joints, dtype=np.float64)
+        if target.shape != (7,) or not np.all(np.isfinite(target)):
+            return {"success": False, "error": "目标关节角无效"}
+
+        if not self.client.wait_for_server(timeout_sec=5.0):
+            return {
+                "success": False,
+                "error": "MoveIt action 不可用",
+                "action": self.cfg["moveit"]["action"],
+            }
+
+        names = C.LEFT_JOINT_NAMES if side == "left" else C.RIGHT_JOINT_NAMES
+        tolerance = float(self.cfg["moveit"].get("joint_tolerance_rad", 0.03))
+        constraints = self.Constraints()
+        for name, position in zip(names, target):
+            joint = self.JointConstraint()
+            joint.joint_name = name
+            joint.position = float(position)
+            joint.tolerance_above = tolerance
+            joint.tolerance_below = tolerance
+            joint.weight = 1.0
+            constraints.joint_constraints.append(joint)
+
+        goal = self.MoveGroup.Goal()
+        req = goal.request
+        req.group_name = (
+            self.cfg["moveit"]["group_left"]
+            if side == "left"
+            else self.cfg["moveit"]["group_right"]
+        )
+        req.goal_constraints = [constraints]
+        req.num_planning_attempts = 3
+        req.allowed_planning_time = float(self.cfg["moveit"].get("planning_time_s", 5.0))
+        req.max_velocity_scaling_factor = float(velocity_scaling)
+        req.max_acceleration_scaling_factor = float(velocity_scaling)
+        goal.planning_options.plan_only = False
+        goal.planning_options.replan = False
+
+        send_future = self.client.send_goal_async(goal)
+        C.rclpy.spin_until_future_complete(self.node, send_future, timeout_sec=5.0)
+        if not send_future.done() or send_future.result() is None:
+            return {"success": False, "error": "MoveIt goal 发送超时"}
+        handle = send_future.result()
+        if not handle.accepted:
+            return {"success": False, "error": "MoveIt 拒绝 goal"}
+
+        result_future = handle.get_result_async()
+        deadline = time.monotonic() + float(timeout_s)
+        while not result_future.done() and time.monotonic() < deadline:
+            C.rclpy.spin_once(self.node, timeout_sec=0.05)
+        if not result_future.done() or result_future.result() is None:
+            cancel_future = handle.cancel_goal_async()
+            C.rclpy.spin_until_future_complete(self.node, cancel_future, timeout_sec=2.0)
+            return {"success": False, "error": "MoveIt 执行超时"}
+
+        result = result_future.result().result
+        code = int(result.error_code.val)
+        if code != MoveItErrorCodes.SUCCESS:
+            detail = moveit_error_detail(code)
+            return {
+                "success": False,
+                "error": detail,
+                "moveit_error_detail": detail,
+                "moveit_error_code": code,
+            }
+
+        final = None
+        final_error = None
+        verify_deadline = time.monotonic() + 3.0
+        while time.monotonic() < verify_deadline:
+            C.rclpy.spin_once(self.node, timeout_sec=0.05)
+            q = self.live.arm_q(side)
+            if q is not None:
+                final = np.asarray(q, dtype=np.float64)
+                final_error = float(np.max(np.abs(final - target)))
+                if final_error <= tolerance:
+                    break
+        if final is None:
+            return {"success": False, "error": "执行完成但读不到最终关节状态", "moveit_error_code": code}
+        success = final_error <= tolerance
+        return {
+            "success": success,
+            "error": None if success else "执行完成但关节误差超限",
+            "final_joints": [round(float(v), 5) for v in final],
+            "joint_error_max_rad": round(float(final_error), 5),
             "moveit_error_code": code,
             "planning_time_s": round(float(result.planning_time), 3),
         }

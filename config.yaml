@@ -78,6 +78,11 @@ moveit:
   orientation_tolerance_rad: 0.02
   rotation_position_tolerance_m: 0.012
   rotation_orientation_tolerance_rad: 0.10
+  joint_tolerance_rad: 0.03
+  safe_states:
+    hands_up:
+      left: [0.0, 0.0, 0.0, 1.640609, 0.0, 0.0, 0.0]
+      right: [0.0, 0.0, 0.0, 1.640609, 0.0, 0.0, 0.0]
   tcp_offset_in_link7_m: [0.0, 0.0, 0.1801]
 
 limits:

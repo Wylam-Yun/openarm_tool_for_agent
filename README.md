@@ -44,6 +44,7 @@ workspace_weilin/
     move_delta.ts      # tool: move_delta（读 TCP + dxyz，转调 move_to）
     rotate_pitch.ts    # tool: rotate_pitch（位置锁死转腕）
     scripted_grasp.ts  # tool: scripted_grasp（串 move_to + set_gripper）
+    reset_arm.ts       # tool: reset_arm（回 hands_up 安全姿态）
     back_project_batch.ts  # tool: back_project_batch（像素→世界）
     query_world_map.ts     # tool: query_world_map（高度过滤+聚类）
   arm_tools/
@@ -57,6 +58,7 @@ workspace_weilin/
     move_delta.py      # 后端：算一次目标（world 增量）→ 调 move_to
     rotate_pitch.py    # 后端：生成目标姿态 → MoveIt
     scripted_grasp.py  # 后端：串行编排 move_to + set_gripper，阶段超时
+    reset_arm.py       # 后端：关节空间回 hands_up 并校验关节误差
     back_project_batch.py  # 后端：3x3 中值深度 + 内参反投 + 外参到 world
     query_world_map.py     # 后端：降采样投影 + z/xy 过滤 + 2cm 栅格聚类
     snapshots/         # view 存图（运行时生成）
@@ -102,7 +104,7 @@ conda activate openarm
   三路 compressed 图像各取一帧存 `snapshots/`。纯只读。
 
 ### move_to
-- 输入：`xyz(world 系绝对位置)`，`arm`，`gripper=hold/open/close`，`timeout_s=30`
+- 输入：`xyz(world 系绝对位置)`，`arm`，`timeout_s=30`
 - 输出：`{success, final_xyz, position_error_m, orientation_error_rad, ...}`
 - 链路：
   1. 检查 world 目标和安全高度。
@@ -112,16 +114,15 @@ conda activate openarm
   4. 执行后重新读取真实 `hand_tcp` TF；位置和姿态误差都在容差内才成功。
 
 ### move_delta
-- 输入：`dxyz(world 系增量)`，`arm`，`gripper=hold/open/close`，`timeout_s=30`
+- 输入：`dxyz(world 系增量)`，`arm`，`timeout_s=30`
 - 输出：move_to 的原样 JSON。
 - 链路：读一次当前 TCP（world）并锁定目标 → 调共享 move_to。
 
 ### rotate_pitch
-- 输入：`target_pitch(绝对弧度，限±1.5，默认0.6)`，`arm`，
-  `gripper=hold/open/close`，`timeout_s=30`
+- 输入：`target_pitch(绝对弧度，限±1.5，默认0.6)`，`arm`，`timeout_s=30`
 - 输出：`{success, arm, final_pitch, pitch_error_rad, position_error_m, ...}`
 - 链路：TF 读当前位姿提 pitch → 生成保持 TCP 位置的新姿态 → MoveIt
-  规划执行 → 重新读取 TCP 验证位置和姿态；需要夹爪动作时才调用 gripper。
+  规划执行 → 重新读取 TCP 验证位置和姿态；夹爪动作需单独调用 `set_gripper`。
 
 ### scripted_grasp
 - 输入：`xyz(world 系抓取点)`，`arm`，`approach_z=0.10`，
@@ -129,6 +130,12 @@ conda activate openarm
 - 输出：`{success, phases[]}` 或 `{success:false, failed_phase, phases}`
 - 链路：串行调用共享 `set_gripper`/`move_to`：张开→悬停→下降→闭→抬，
   任一步失败即停并标明卡点；每个阶段有超时。
+
+### reset_arm
+- 输入：`arm=left/right/both`，`timeout_s=30`
+- 动作：把指定手臂移动到 MoveIt `hands_up` 安全姿态；不改变夹爪。
+- 输出：每只手臂的 MoveIt 返回码、最终关节角和最大关节误差。
+- 复位不是急停；危险情况必须使用实体急停按钮。
 
 ### 动作工具共用的控制链
 `move_to` 是唯一基础移动操作。`move_delta` 只计算目标，

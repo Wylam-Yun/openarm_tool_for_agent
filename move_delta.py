@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """move_delta 后端：当前位置 + dxyz，再调共享 move_to。
 
-用法：python3 move_delta.py '{"dxyz":[0.02,0,0],"arm":"right","gripper":"hold"}'
+用法：python3 move_delta.py '{"dxyz":[0.02,0,0],"arm":"right"}'
 dxyz 是 world 系增量（米）。本脚本只读一次 TCP 算出目标，转调 move_to.py，
 目标只计算一次；实际规划、执行和最终 TF 校验全部走 move_to。
 """
@@ -56,7 +56,6 @@ def main():
     payload = {
         "xyz": target_world.tolist(),
         "arm": arm,
-        "gripper": args.get("gripper", "hold"),
         "timeout_s": float(args.get("timeout_s", 30.0)),
     }
     move_to = os.path.join(C.repo_dir(), "move_to.py")

@@ -26,14 +26,11 @@ def main():
 
     xyz = args.get("xyz")
     arm = args.get("arm")
-    gripper = args.get("gripper", "hold")
     timeout_s = float(args.get("timeout_s", 30.0))
     if not (isinstance(xyz, list) and len(xyz) == 3):
         C.die("xyz 必须是 [x,y,z]（world 系，米）", got=xyz)
     if arm not in ("left", "right"):
         C.die("arm 必须显传 left/right", got=arm)
-    if gripper not in ("hold", "open", "close"):
-        C.die("gripper 只能是 hold/open/close", got=gripper)
     if not (0.02 <= timeout_s <= 300.0):
         C.die("timeout_s 必须在 0.02~300", got=timeout_s)
     try:
@@ -78,21 +75,6 @@ def main():
             position_tolerance=float(moveit_cfg["position_tolerance_m"]),
             orientation_tolerance=float(moveit_cfg["orientation_tolerance_rad"]),
         )
-
-        if result.get("success") and gripper in ("open", "close"):
-            from set_gripper import drive_gripper
-
-            g = cfg["gripper"]
-            ok_gripper, width = drive_gripper(
-                node, live, arm,
-                g["closed_m"] if gripper == "close" else g["open_m"],
-                cfg,
-            )
-            result["gripper_success"] = ok_gripper
-            result["gripper_width_m"] = width
-            if not ok_gripper:
-                result["success"] = False
-                result["error"] = "到位但夹爪失败"
 
         result.update({
             "arm": arm,
