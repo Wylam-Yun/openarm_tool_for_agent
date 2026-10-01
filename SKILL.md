@@ -15,9 +15,13 @@ return to a safe posture, or inspect its cameras and world state.
    state for the action.
 2. Choose one explicit capability: arm motion, gripper action, or reset. Keep
    gripper state outside motion calls.
-3. Check the tool result's `success` field and MoveIt or controller return code.
+3. Before a multi-stage physical task, form the phase sequence first (for
+   example: hover, descend, close, lift), then execute one phase at a time and
+   verify the external state after each phase. For a known free-space target,
+   use one `move_to` rather than manufacturing 2-3 cm micro-steps.
+4. Check the tool result's `success` field and MoveIt or controller return code.
    A log line or accepted goal is not completion.
-4. After a successful action, verify the reported final TCP or joint state;
+5. After a successful action, verify the reported final TCP or joint state;
    use `view_env_state` again when the next decision depends on live state.
 
 ## Capability boundaries
@@ -35,6 +39,24 @@ return to a safe posture, or inspect its cameras and world state.
   error.
 - `back_project_batch` and `query_world_map`: perception helpers; they do not
   move the robot.
+
+## Motion convergence
+
+`move_to` and `rotate_pitch` run through the shared MoveIt client. When MoveIt
+succeeds but the measured position is outside tolerance, the client may
+run a bounded position-only correction: it keeps the original target fixed,
+measures the real TCP, and adds the latest residual to the compensated command
+(bounded integral correction, not a fresh retry of the same target).
+It never retries a planning failure or an orientation failure. The correction
+stops when the residual grows, a safety limit is reached, or the configured
+iteration count is exhausted. The JSON result includes `iterations`,
+`attempts`, and `convergence_stop_reason`.
+
+The caller's `timeout_s` remains the timeout for the primary action. Correction
+rounds use the internal `converge_retry_timeout_s` limit and do not consume the
+timeouts of later phases. `move_delta` and the `scripted_grasp` hover, descend,
+and lift phases disable correction: contact can look like a position residual,
+and `move_delta` already self-corrects by re-reading the TCP on every call.
 
 Argument schemas and result examples are in
 [`references/tools.md`](references/tools.md). Safety and recovery rules are in

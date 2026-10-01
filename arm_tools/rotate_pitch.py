@@ -54,7 +54,10 @@ def main():
         C.die(f"参数不是合法 JSON：{exc}")
     target = float(args.get("target_pitch", 0.6))
     arm = args.get("arm")
-    timeout_s = float(args.get("timeout_s", 30.0))
+    cfg = C.load_config()
+    timeout_s = float(args.get(
+        "timeout_s", cfg["moveit"].get("default_timeout_s", 15.0)
+    ))
     if arm not in ("left", "right"):
         C.die("arm 必须显传 left/right", got=arm)
     if not (-1.5 <= target <= 1.5):
@@ -62,7 +65,6 @@ def main():
     if not (0.02 <= timeout_s <= 300.0):
         C.die("timeout_s 必须在 0.02~300", got=timeout_s)
 
-    cfg = C.load_config()
     rclpy.init()
     node = rclpy.create_node("arm_tools_rotate_pitch")
     try:
@@ -84,6 +86,7 @@ def main():
             timeout_s=timeout_s,
             position_tolerance=float(cfg["moveit"]["rotation_position_tolerance_m"]),
             orientation_tolerance=float(cfg["moveit"]["rotation_orientation_tolerance_rad"]),
+            start_xyz=tcp["xyz"],
         )
         final_q = result.get("final_quat_wxyz")
         final_pitch = pitch_of_quat(final_q) if final_q is not None else None

@@ -199,7 +199,7 @@ do_move_to() {
   local arm x y z timeout payload
   arm="$(ask_arm)"
   x="$(ask_or_default 'world x（米）' '0.60')"; y="$(ask_or_default 'world y（米）' '0.00')"; z="$(ask_or_default 'world z（米）' '0.90')"
-  timeout="$(ask_or_default '动作最大等待时间（秒）' '30')"
+  timeout="$(ask_or_default '动作最大等待时间（秒）' '15')"
   payload="$(make_json move_to "$arm" "$x" "$y" "$z" "$timeout")" || { echo '坐标和超时必须是数字'; return; }
   echo "目标：world [$x, $y, $z] m，arm=$arm。"
   if confirm_action; then run_backend move_to.py "$payload"; fi
@@ -209,7 +209,7 @@ do_move_delta() {
   local arm dx dy dz timeout payload
   arm="$(ask_arm)"
   dx="$(ask_or_default 'world dx（米）' '0.02')"; dy="$(ask_or_default 'world dy（米）' '0.00')"; dz="$(ask_or_default 'world dz（米）' '0.00')"
-  timeout="$(ask_or_default '动作最大等待时间（秒）' '30')"
+  timeout="$(ask_or_default '动作最大等待时间（秒）' '15')"
   payload="$(make_json move_delta "$arm" "$dx" "$dy" "$dz" "$timeout")" || { echo '位移和超时必须是数字'; return; }
   echo "目标：从当前 TCP 在 world 系移动 [$dx, $dy, $dz] m。"
   if confirm_action; then run_backend move_delta.py "$payload"; fi
@@ -218,7 +218,7 @@ do_move_delta() {
 do_rotate_pitch() {
   local arm pitch timeout payload
   arm="$(ask_arm)"; pitch="$(ask_or_default '目标 pitch（弧度，-1.5~1.5）' '0.30')"
-  timeout="$(ask_or_default '动作最大等待时间（秒）' '30')"
+  timeout="$(ask_or_default '动作最大等待时间（秒）' '15')"
   payload="$(make_json rotate_pitch "$arm" "$pitch" "$timeout")" || { echo 'pitch 和超时必须是数字'; return; }
   echo "目标：arm=$arm，保持 TCP 位置，调整绝对 pitch=$pitch rad。"
   if confirm_action; then run_backend rotate_pitch.py "$payload"; fi

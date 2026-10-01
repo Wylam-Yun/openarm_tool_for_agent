@@ -1,15 +1,15 @@
 # arm_tools（RBM OpenArm，真机）
 
-项目级 OpenCode tools：`.opencode/tools/` 放 TS 注册，`arm_tools/` 放 Python 后端。
+Python 后端直调：`arm_tools/` 放 Python 后端脚本，直接 `python3` 传参调用。
 
 ## Agent Skill
 
-仓库根目录的 [`SKILL.md`](../SKILL.md) 是给 Agent 使用的控制入口，覆盖移动、夹爪、复位和感知工具。详细参数见 [`references/tools.md`](../references/tools.md)，安全与恢复规则见 [`references/safety.md`](../references/safety.md)。
-TS 只负责传参调脚本；逻辑全在 Python；输出统一单行 JSON。
+skill 根目录的 [`SKILL.md`](../SKILL.md) 是给 Agent 使用的控制入口，覆盖移动、夹爪、复位和感知工具。详细参数见 [`references/tools.md`](../references/tools.md)，安全与恢复规则见 [`references/safety.md`](../references/safety.md)。
+调用方直接传参调脚本；逻辑全在 Python；输出统一单行 JSON。
 
 ## 交互式入口
 
-不想手写 JSON 时，在 `workspace_weilin` 目录运行：
+不想手写 JSON 时，在 `openarm-agent` 目录运行：
 
 ```bash
 bash ./arm_tools.sh
@@ -39,18 +39,10 @@ bash ./arm_tools.sh
 ## 目录
 
 ```
-workspace_weilin/
-  .opencode/tools/
-    set_gripper.ts     # tool: set_gripper
-    release.ts         # tool: release（调 set_gripper.py，state=open）
-    view_env_state.ts  # tool: view_env_state（无参）
-    move_to.ts         # tool: move_to
-    move_delta.ts      # tool: move_delta（读 TCP + dxyz，转调 move_to）
-    rotate_pitch.ts    # tool: rotate_pitch（位置锁死转腕）
-    scripted_grasp.ts  # tool: scripted_grasp（串 move_to + set_gripper）
-    reset_arm.ts       # tool: reset_arm（回 hands_up 安全姿态）
-    back_project_batch.ts  # tool: back_project_batch（像素→世界）
-    query_world_map.ts     # tool: query_world_map（高度过滤+聚类）
+openarm-agent/
+  SKILL.md           # skill 入口：能力边界、操作顺序、恢复规则
+  arm_tools.sh       # 交互式菜单入口
+  references/        # 工具参数表 + 安全规则
   arm_tools/
     config.yaml        # 话题/帧名/task_frame/相机外参/限位
     arm_common.py      # 共享：配置加载、LiveState（joint/TF/图像快照，只读）
@@ -68,7 +60,7 @@ workspace_weilin/
     snapshots/         # view 存图（运行时生成）
 ```
 
-## 运行前提（每个 tool 调用前 TS 自动做）
+## 运行前提（每次调用前先加载环境）
 
 ```bash
 source ~/Users/Dreams/ictor/RBM_openarm/source_all.sh
@@ -108,22 +100,23 @@ conda activate openarm
   三路 compressed 图像各取一帧存 `snapshots/`。纯只读。
 
 ### move_to
-- 输入：`xyz(world 系绝对位置)`，`arm`，`timeout_s=30`
-- 输出：`{success, final_xyz, position_error_m, orientation_error_rad, ...}`
+- 输入：`xyz(world 系绝对位置)`，`arm`，`timeout_s=15`，可选 `converge=false`
+- 输出：`{success, final_xyz, position_error_m, orientation_error_rad, iterations, attempts, ...}`
 - 链路：
   1. 检查 world 目标和安全高度。
   2. 读取当前 `hand_tcp` 姿态，保持姿态并将 TCP 目标交给 MoveIt。
   3. MoveIt 使用现有 `left_arm/right_arm` 规划组和
      `joint_trajectory_controller` 执行。
   4. 执行后重新读取真实 `hand_tcp` TF；位置和姿态误差都在容差内才成功。
+  5. MoveIt 成功但位置残差超限时，按配置执行有限次位置补偿；规划或姿态失败不重试。
 
 ### move_delta
-- 输入：`dxyz(world 系增量)`，`arm`，`timeout_s=30`
+- 输入：`dxyz(world 系增量)`，`arm`，`timeout_s=15`
 - 输出：move_to 的原样 JSON。
 - 链路：读一次当前 TCP（world）并锁定目标 → 调共享 move_to。
 
 ### rotate_pitch
-- 输入：`target_pitch(绝对弧度，限±1.5，默认0.6)`，`arm`，`timeout_s=30`
+- 输入：`target_pitch(绝对弧度，限±1.5，默认0.6)`，`arm`，`timeout_s=15`
 - 输出：`{success, arm, final_pitch, pitch_error_rad, position_error_m, ...}`
 - 链路：TF 读当前位姿提 pitch → 生成保持 TCP 位置的新姿态 → MoveIt
   规划执行 → 重新读取 TCP 验证位置和姿态；夹爪动作需单独调用 `set_gripper`。
@@ -174,20 +167,19 @@ conda activate openarm
 
 ## 排错
 
-- `ROS 环境未加载`：TS 的 source 链没走通，检查路径。
+- `ROS 环境未加载`：source 链没走通，检查 `source_all.sh` 路径。
 - `无 /joint_states`：OpenArm 驱动（菜单 3）没起。
 - `读不到 TCP TF`：驱动起了但 TF 树不全，`ros2 run tf2_ros tf2_echo world
   openarm_right_hand_tcp` 看。
 - Action 5s 超时：gripper controller 没 spawn（驱动用的 controller 不对，
   需 `forward_position_controller` 那一路）。
 - `move_to`/`move_delta` 先用小步测试；它们不要求 task_frame 标定。
-- 长距离 move_to 超时：先拆小段调用；Bun 侧默认执行超时遇上就分段。
+- 长距离 move_to 超时：先拆小段调用。
 - MoveIt 返回 `99999` 或 `-1` 时，JSON 中的 `error` 会明确说明：
   当前姿态、关节限位和碰撞约束下找不到有效的关节解。不要只看“失败”，
   先缩小目标位移，并检查 `moveit_error_code` 和最终 TCP 状态。
+## 在别处使用本 skill
 
-## 测试成功后转移
-
-整个 `workspace_weilin/`（含 `.opencode/`）拷到目标项目根即完成注册；
-全局注册则把 `.opencode/tools/*.ts` 拷到 `~/.config/opencode/tools/`，
-并把 TS 里 `BACKEND` 路径改到后端实际位置。
+把整个 `openarm-agent/` 目录拷到目标位置即可：Agent 读 `SKILL.md` 入口，
+按 `references/` 里的参数表直接 `python3 arm_tools/<tool>.py '<json>'` 调用；
+交互式使用运行 `bash arm_tools.sh`。

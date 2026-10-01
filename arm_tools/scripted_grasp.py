@@ -56,15 +56,15 @@ def main():
          {"arm": arm, "state": "open", "timeout_s": timeout_s}),
         ("hover", "move_to.py",
          {"xyz": shifted(approach_z), "arm": arm,
-          "timeout_s": timeout_s}),
+          "timeout_s": timeout_s, "converge": False}),
         ("descend", "move_to.py",
          {"xyz": shifted(grasp_z), "arm": arm,
-          "timeout_s": timeout_s}),
+          "timeout_s": timeout_s, "converge": False}),
         ("close", "set_gripper.py",
          {"arm": arm, "state": "close", "timeout_s": timeout_s}),
         ("lift", "move_to.py",
          {"xyz": shifted(approach_z), "arm": arm,
-          "timeout_s": timeout_s}),
+          "timeout_s": timeout_s, "converge": False}),
     ]
     for name, script, payload in seq:
         res = call(script, payload)

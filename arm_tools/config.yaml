@@ -74,6 +74,11 @@ moveit:
   group_left: left_arm
   group_right: right_arm
   planning_time_s: 5.0
+  default_timeout_s: 15.0
+  converge_enabled: true
+  converge_max_iters: 3
+  converge_max_compensation_m: 0.08
+  converge_retry_timeout_s: 8.0
   position_tolerance_m: 0.005
   orientation_tolerance_rad: 0.02
   rotation_position_tolerance_m: 0.012

@@ -26,7 +26,13 @@ def main():
 
     xyz = args.get("xyz")
     arm = args.get("arm")
-    timeout_s = float(args.get("timeout_s", 30.0))
+    cfg = C.load_config()
+    timeout_s = float(args.get(
+        "timeout_s", cfg["moveit"].get("default_timeout_s", 15.0)
+    ))
+    converge = args.get("converge")
+    if converge is not None and not isinstance(converge, bool):
+        C.die("converge 必须是布尔值", got=converge)
     if not (isinstance(xyz, list) and len(xyz) == 3):
         C.die("xyz 必须是 [x,y,z]（world 系，米）", got=xyz)
     if arm not in ("left", "right"):
@@ -40,7 +46,6 @@ def main():
     if not np.all(np.isfinite(xyz_world)):
         C.die("xyz 必须是有限数字", got=xyz)
 
-    cfg = C.load_config()
     if xyz_world[2] < float(cfg["limits"]["min_z_m"]):
         C.die("目标 z 低于安全高度", z=float(xyz_world[2]))
     if np.linalg.norm(xyz_world) > 10.0:
@@ -74,6 +79,8 @@ def main():
             timeout_s=timeout_s,
             position_tolerance=float(moveit_cfg["position_tolerance_m"]),
             orientation_tolerance=float(moveit_cfg["orientation_tolerance_rad"]),
+            start_xyz=tcp["xyz"],
+            converge_enabled=converge,
         )
 
         result.update({

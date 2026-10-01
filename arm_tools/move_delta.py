@@ -40,6 +40,9 @@ def main():
         C.die("单次 dxyz 超过 0.50m，拒绝执行", norm_m=float(np.linalg.norm(dxyz)))
 
     cfg = C.load_config()
+    timeout_s = float(args.get(
+        "timeout_s", cfg["moveit"].get("default_timeout_s", 15.0)
+    ))
 
     rclpy.init()
     node = rclpy.create_node("arm_tools_movedelta")
@@ -56,7 +59,8 @@ def main():
     payload = {
         "xyz": target_world.tolist(),
         "arm": arm,
-        "timeout_s": float(args.get("timeout_s", 30.0)),
+        "timeout_s": timeout_s,
+        "converge": False,
     }
     move_to = os.path.join(C.repo_dir(), "move_to.py")
     r = subprocess.run(

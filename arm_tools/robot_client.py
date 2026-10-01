@@ -120,21 +120,11 @@ class MoveItClient:
         constraints.orientation_constraints.append(ori)
         return constraints
 
-    def move_tcp(self, side, xyz_world, quat_wxyz, timeout_s=20.0,
-                 position_tolerance=0.012, orientation_tolerance=0.06,
-                 velocity_scaling=0.15):
-        """Plan and execute one hand_tcp target, then verify the real TCP TF."""
+    def _move_tcp_once(self, side, xyz_world, quat_wxyz, timeout_s,
+                       position_tolerance, orientation_tolerance,
+                       velocity_scaling):
+        """Execute one target and return its external state verification."""
         from moveit_msgs.msg import MoveItErrorCodes
-
-        if side not in ("left", "right"):
-            return {"success": False, "error": "arm 必须是 left/right"}
-        xyz_world = np.asarray(xyz_world, dtype=np.float64)
-        if xyz_world.shape != (3,) or not np.all(np.isfinite(xyz_world)):
-            return {"success": False, "error": "目标 xyz 无效"}
-        try:
-            quat_wxyz = self._quat_normalize(quat_wxyz)
-        except ValueError as exc:
-            return {"success": False, "error": str(exc)}
 
         if not self.client.wait_for_server(timeout_sec=5.0):
             return {
@@ -212,6 +202,142 @@ class MoveItClient:
             "moveit_error_code": code,
             "planning_time_s": round(float(result.planning_time), 3),
         }
+
+    @staticmethod
+    def _clamp_vector_norm(vector, max_norm):
+        vector = np.asarray(vector, dtype=np.float64)
+        norm = float(np.linalg.norm(vector))
+        if norm <= max_norm or norm < 1e-12:
+            return vector.copy(), False
+        return vector * (max_norm / norm), True
+
+    def move_tcp(self, side, xyz_world, quat_wxyz, timeout_s=15.0,
+                 position_tolerance=0.012, orientation_tolerance=0.06,
+                 velocity_scaling=0.15, start_xyz=None,
+                 converge_enabled=None):
+        """Move to a TCP target with bounded position-error compensation."""
+        if side not in ("left", "right"):
+            return {"success": False, "error": "arm 必须是 left/right"}
+        xyz_world = np.asarray(xyz_world, dtype=np.float64)
+        if xyz_world.shape != (3,) or not np.all(np.isfinite(xyz_world)):
+            return {"success": False, "error": "目标 xyz 无效"}
+        try:
+            quat_wxyz = self._quat_normalize(quat_wxyz)
+        except ValueError as exc:
+            return {"success": False, "error": str(exc)}
+
+        moveit_cfg = self.cfg["moveit"]
+        if converge_enabled is None:
+            converge_enabled = bool(moveit_cfg.get("converge_enabled", True))
+        max_iters = max(1, int(moveit_cfg.get("converge_max_iters", 3)))
+        max_compensation = float(
+            moveit_cfg.get("converge_max_compensation_m", 0.08)
+        )
+        retry_timeout = float(
+            moveit_cfg.get("converge_retry_timeout_s", 8.0)
+        )
+        max_single_move = float(
+            self.cfg.get("limits", {}).get("max_single_move_m", 0.30)
+        )
+        min_z = float(self.cfg.get("limits", {}).get("min_z_m", 0.0))
+        start_xyz = (
+            np.asarray(start_xyz, dtype=np.float64)
+            if start_xyz is not None else xyz_world.copy()
+        )
+
+        def finish(result, attempts, reason):
+            output = dict(result)
+            output["iterations"] = len(attempts)
+            output["attempts"] = attempts
+            output["convergence_enabled"] = bool(converge_enabled)
+            output["convergence_stop_reason"] = reason
+            return output
+
+        attempts = []
+        target = xyz_world.copy()
+        previous_error = None
+        for attempt_index in range(max_iters):
+            attempt_timeout = float(timeout_s)
+            if attempt_index > 0:
+                attempt_timeout = min(attempt_timeout, retry_timeout)
+            result = self._move_tcp_once(
+                side, target, quat_wxyz, attempt_timeout,
+                position_tolerance, orientation_tolerance, velocity_scaling,
+            )
+            final_xyz = None
+            if result.get("final_xyz") is not None:
+                candidate = np.asarray(result["final_xyz"], dtype=np.float64)
+                if candidate.shape == (3,) and np.all(np.isfinite(candidate)):
+                    final_xyz = candidate
+                    residual = xyz_world - final_xyz
+                    residual_error = float(np.linalg.norm(residual))
+                    result["command_position_error_m"] = result.get(
+                        "position_error_m"
+                    )
+                    result["position_error_m"] = round(residual_error, 4)
+                    result["success"] = bool(
+                        residual_error <= float(position_tolerance)
+                        and float(result.get("orientation_error_rad", math.inf))
+                        <= float(orientation_tolerance)
+                    )
+                    result["error"] = (
+                        None if result["success"] else "补偿后原始目标误差仍超限"
+                    )
+
+            record = dict(result)
+            record["attempt"] = attempt_index + 1
+            record["commanded_xyz"] = [round(float(v), 4) for v in target]
+            if final_xyz is not None:
+                residual = xyz_world - final_xyz
+                record["residual_xyz_m"] = [
+                    round(float(v), 4) for v in residual
+                ]
+                record["residual_m"] = round(float(np.linalg.norm(residual)), 4)
+            attempts.append(record)
+
+            if result.get("success"):
+                return finish(result, attempts, "target_reached")
+            if not converge_enabled or attempt_index + 1 >= max_iters:
+                reason = "convergence_disabled" if not converge_enabled else "max_iters"
+                return finish(result, attempts, reason)
+            if int(result.get("moveit_error_code", -1)) != 1:
+                return finish(result, attempts, "moveit_failed")
+            if final_xyz is None:
+                return finish(result, attempts, "final_tf_unavailable")
+
+            orientation_error = result.get("orientation_error_rad")
+            if (
+                orientation_error is None
+                or float(orientation_error) > float(orientation_tolerance)
+            ):
+                return finish(result, attempts, "orientation_error")
+            residual = xyz_world - final_xyz
+            residual_error = float(np.linalg.norm(residual))
+            if previous_error is not None and residual_error >= previous_error:
+                return finish(result, attempts, "residual_not_decreasing")
+            previous_error = residual_error
+
+            if max_compensation <= 0.0:
+                return finish(result, attempts, "compensation_disabled")
+            compensation, clamped = self._clamp_vector_norm(
+                residual + (target - xyz_world), max_compensation
+            )
+            target = xyz_world + compensation
+            record["compensation_xyz_m"] = [
+                round(float(v), 4) for v in compensation
+            ]
+            record["compensation_clamped"] = clamped
+            if (
+                target[2] < min_z
+                or float(np.linalg.norm(target)) > 10.0
+                or float(np.linalg.norm(target - start_xyz)) > max_single_move
+            ):
+                return finish(result, attempts, "compensation_safety_limit")
+
+        return finish(
+            {"success": False, "error": "收敛循环未执行"}, attempts,
+            "no_attempt",
+        )
 
     def move_joints(self, side, target_joints, timeout_s=30.0,
                     velocity_scaling=0.15):
