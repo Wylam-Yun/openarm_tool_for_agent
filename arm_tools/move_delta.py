@@ -70,6 +70,7 @@ def main():
     sys.stdout.write(r.stdout if r.stdout else "")
     if r.returncode != 0 and not r.stdout.strip():
         C.die("move_to 子进程失败", stderr=r.stderr[-500:])
+    sys.exit(r.returncode)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-10-02 - 保持运动起步支撑命令连续
+
+- 将旧 TCP 残差补偿替换为固定 IK 关节目标、新鲜控制器反馈、整轨有界偏差补偿和 FollowJointTrajectory 执行；保持首点与原支撑命令连续，减少起步卸力。
+- 增加逐关节限幅、返回码与新鲜终态检查、JSONL 记录及 13 项离线回归；move_delta 传播子进程退出码。
+- 真机已完成草莓抓取入盘；跟踪残差与限位拒绝仍存在，超时/abort 连续保持分支尚未专门完成真机验收，不宣称控制问题全部修复。
+
+## 2026-10-02 - 沉淀抓取判据并收拢任务经验
+
+- 在 SKILL.md 加入腕部视觉对齐、接触与试抬确认、动作结果分层判断和松爪退开后验收规则，避免空夹误判及将失败标志直接等同于未运动。
+- 补充接近小步、固定绝对目标重试、受限转移与位姿记录说明；同步纠偏概述，并改为观察后决定恢复，不因外层失败自动复位。
+- 将 workspace_weilin/experience 整体移入 openarm-agent/experience，保留六个原有记录/证据文件；增加任务索引、入口链接并修正相对路径，供类似任务按需参考，历史点位不作为直接重放轨迹。
+
 ## 2026-10-01 - Add bounded TCP convergence and motion planning guidance
 
 - Added accumulated position-residual compensation after successful MoveIt

@@ -13,6 +13,8 @@ frames:
 
 topics:
   joint_states: /joint_states
+  controller_state_left: /left_joint_trajectory_controller/controller_state
+  controller_state_right: /right_joint_trajectory_controller/controller_state
   cmd_left: /left_forward_position_controller/commands
   cmd_right: /right_forward_position_controller/commands
   gripper_left: left_gripper_controller/gripper_cmd
@@ -71,6 +73,22 @@ servo:
 # fixed link7 -> hand_tcp translation in the OpenArm v10 URDF.
 moveit:
   action: /move_action
+  planning_service: /plan_kinematic_path
+  model_parameters_service: /move_group/get_parameters
+  trajectory_action_left: /left_joint_trajectory_controller/follow_joint_trajectory
+  trajectory_action_right: /right_joint_trajectory_controller/follow_joint_trajectory
+  ik_service: /compute_ik
+  fk_service: /compute_fk
+  joint_tracking:
+    max_bias_rad: 0.40
+    min_duration_s: 4.0
+    tracking_allowance_rad: 0.10
+    max_start_drop_m: 0.005
+    max_correction_step_rad: 0.08
+    max_target_delta_rad: 0.45
+    max_iters: 3
+    correction_gain: 0.5
+    tolerance_rad: 0.006
   group_left: left_arm
   group_right: right_arm
   planning_time_s: 5.0

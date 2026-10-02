@@ -7,6 +7,11 @@ Python 后端直调：`arm_tools/` 放 Python 后端脚本，直接 `python3` �
 skill 根目录的 [`SKILL.md`](../SKILL.md) 是给 Agent 使用的控制入口，覆盖移动、夹爪、复位和感知工具。详细参数见 [`references/tools.md`](../references/tools.md)，安全与恢复规则见 [`references/safety.md`](../references/safety.md)。
 调用方直接传参调脚本；逻辑全在 Python；输出统一单行 JSON。
 
+执行类似任务前，按 [`experience/index.md`](../experience/index.md) 选择相关经验。
+例如草莓入盘先读 [2026-10-02 成功记录](../experience/2026-10-02-openarm-strawberry-grasp.md)，
+参考其中实际抓取和松爪姿态，再用当前相机和 TCP 校正目标；历史点位不能直接重放。
+接近、重试及受限转移的注意事项见 [`references/manipulation.md`](../references/manipulation.md)。
+
 ## 交互式入口
 
 不想手写 JSON 时，在 `openarm-agent` 目录运行：
@@ -43,13 +48,14 @@ openarm-agent/
   SKILL.md           # skill 入口：能力边界、操作顺序、恢复规则
   arm_tools.sh       # 交互式菜单入口
   references/        # 工具参数表 + 安全规则
+  experience/        # 任务经验索引、实测点位、失败复盘与会话证据
   arm_tools/
     config.yaml        # 话题/帧名/task_frame/相机外参/限位
     arm_common.py      # 共享：配置加载、LiveState（joint/TF/图像快照，只读）
     perception_common.py  # 感知共享：相机解析、外参、深度反投
     set_gripper.py     # 后端：GripperCommand Action（drive_gripper 可 import）
     view_env_state.py  # 后端：快照 + 存图到 snapshots/
-    robot_client.py    # 共享：MoveIt MoveGroup 请求 + 最终 TCP 校验
+    robot_client.py    # 共享：固定 IK 目标、整轨补偿执行 + 最终 TCP 校验
     move_to.py         # 后端：world xyz → MoveIt hand_tcp 目标
     move_delta.py      # 后端：算一次目标（world 增量）→ 调 move_to
     rotate_pitch.py    # 后端：生成目标姿态 → MoveIt
@@ -70,7 +76,8 @@ conda activate openarm
 
 真机侧还需：CAN 已起（菜单 2）、OpenArm 驱动已起（菜单 3，默认
 `joint_trajectory_controller`）、MoveIt 已起（菜单 4）、相机脚本已起（菜单 9，
-否则图像记 null 不报错）。动作 tool 通过 MoveIt 的 `/move_action` 执行，
+否则图像记 null 不报错）。动作 tool 通过 MoveIt 的 IK/FK 与 `/plan_kinematic_path` 规划，再经现有
+`FollowJointTrajectory` action 执行整轨补偿命令，
 不再直接发布手臂关节 topic；使用 agent 动作时不要同时运行 VR 遥操作。
 感知两个 tool 额外需要：驱动开深度（`realsense.sh` 里 `enable_depth:=false`
 改 `true`，或单起 `rs_launch.py` 传参）+ 下方外参标定，否则直接报错不跑。
@@ -108,7 +115,7 @@ conda activate openarm
   3. MoveIt 使用现有 `left_arm/right_arm` 规划组和
      `joint_trajectory_controller` 执行。
   4. 执行后重新读取真实 `hand_tcp` TF；位置和姿态误差都在容差内才成功。
-  5. MoveIt 成功但位置残差超限时，按配置执行有限次位置补偿；规划或姿态失败不重试。
+  5. 执行后残差超限时，围绕固定 IK 关节目标执行有界跟踪纠偏；规划/控制器失败或误差不降时停止。
 
 ### move_delta
 - 输入：`dxyz(world 系增量)`，`arm`，`timeout_s=15`
@@ -135,6 +142,12 @@ conda activate openarm
 - 复位不是急停；危险情况必须使用实体急停按钮。
 
 ### 动作工具共用的控制链
+固定目标与整轨补偿的数据流见 [`docs/implementation-plan.md`](../docs/implementation-plan.md)。
+`tracking_ros.py` 校验反馈和终态，`joint_tracking.py` 约束纠偏，
+`trajectory_compensation.py` 保持首点连续，`trajectory_executor.py` 规划并执行轨迹。
+离线验证：在项目 Python 环境运行 `python arm_tools/test_converge.py`（从 skill 根目录）。
+目前仍有跟踪残差和限位拒绝；超时/abort 连续保持分支尚未专门完成真机验收。
+
 `move_to` 是唯一基础移动操作。`move_delta` 只计算目标，
 `rotate_pitch` 只生成姿态，`scripted_grasp` 只编排阶段；它们都通过
 `arm_tools/robot_client.py` 调用 MoveIt，不各自实现 IK 或发布关节命令。
